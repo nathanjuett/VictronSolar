@@ -6,3 +6,4 @@ VRM_USERNAME=[username]
 VRM_PASSWORD="[password]"
 VRM_LIVEDATA="False"
 VRM_TESTDATA="[Test json output file]"
+VRM_DAYSPAST=30
