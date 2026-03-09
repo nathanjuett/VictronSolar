@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Victron VRM Data</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h1 { text-align: center; }
+        .graph { margin-bottom: 40px; }
+    </style>
+</head>
+<body>
+    <h1>VRM Installation Statistics</h1>
+    {% for g in graphs %}
+        <div class="graph">{{ g | safe }}</div>
+    {% endfor %}
+</body>
+</html>
