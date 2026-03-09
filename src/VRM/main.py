@@ -59,6 +59,22 @@ def get_install_data(loginobj, installid, startdate):
     data = response.json()
     return data
 
+def get_ev_data(loginobj, installid):
+    url = f"https://vrmapi.victronenergy.com/v2/installations/{installid}/widgets/EvChargerSummary"
+
+    headers = {
+        "Content-Type": "application/json",
+        "x-authorization": f"Bearer {loginobj["token"]}"
+    }
+
+    querystring = {"instance":"0"}
+    response = requests.request("GET", url, headers=headers, params=querystring)
+    data = response.json()
+    return data
+
+
+
+
 def write_to_csv(data,key,offset):
     file = open(f'output/{key}_{offset}.csv', 'w')
     cw = csv.writer(file)
@@ -89,6 +105,8 @@ def main():
         stdate = datetime.date.today() 
         stdate -= datetime.timedelta(days=int(os.getenv("VRM_DAYSPAST")))
         data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate)
+        evdata = get_ev_data(loginobj, installs["records"][0]["idSite"])
+        print(json.dumps(evdata, indent=4))
         print(json.dumps(data, indent=4))
         with open("output/output.json", "w") as outfile:
             json.dump(data, outfile, indent=4)
