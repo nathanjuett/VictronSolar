@@ -44,7 +44,7 @@ def get_installs(loginobj):
     installs = response.json()
     return installs
 
-def get_install_data(loginobj, installid, startdate):
+def get_install_data(loginobj, installid, startdate, type):
     url = f"https://vrmapi.victronenergy.com/v2/installations/{installid}/stats"
 
     headers = {
@@ -53,11 +53,27 @@ def get_install_data(loginobj, installid, startdate):
     }
     
     timestamp = int(datetime.datetime.combine(startdate, datetime.datetime.min.time()).timestamp())
-    querystring = {"interval":"15mins", "start":str(timestamp)}
+    querystring = {"interval":"15mins", "start":str(timestamp), "type": type}
 
     response = requests.request("GET", url, headers=headers, params=querystring)
     data = response.json()
     return data
+
+def get_ev_summary_data(loginobj, installid):
+    url = f"https://vrmapi.victronenergy.com/v2/installations/{installid}/widgets/EvChargerSummary"
+
+    headers = {
+        "Content-Type": "application/json",
+        "x-authorization": f"Bearer {loginobj["token"]}"
+    }
+
+    querystring = {"instance":"0"}
+    response = requests.request("GET", url, headers=headers, params=querystring)
+    data = response.json()
+    return data
+
+
+
 
 def write_to_csv(data,key,offset):
     file = open(f'output/{key}_{offset}.csv', 'w')
@@ -88,10 +104,20 @@ def main():
         installs = get_installs(loginobj)
         stdate = datetime.date.today() 
         stdate -= datetime.timedelta(days=int(os.getenv("VRM_DAYSPAST")))
-        data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate)
+        data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, "live_feed")
+        consumption_data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, "consumption")
+        evcs_data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, "evcs")
+        # evdata = get_ev_summary_data(loginobj, installs["records"][0]["idSite"])
+        print(json.dumps(consumption_data, indent=4))
+        print(json.dumps(evcs_data, indent=4))
+        # print(json.dumps(evdata, indent=4))
         print(json.dumps(data, indent=4))
         with open("output/output.json", "w") as outfile:
             json.dump(data, outfile, indent=4)
+        with open("output/output_consumption.json", "w") as outfile:
+            json.dump(consumption_data, outfile, indent=4)
+        with open("output/output_evcs.json", "w") as outfile:
+            json.dump(evcs_data, outfile, indent=4)
     else:
         with open("output.json", "r") as file:
             data = json.load(file)
@@ -103,6 +129,10 @@ def main():
     write_to_csv(data, "total_solar_yield", stdate.strftime('%Y-%m-%d'))
     write_to_csv(data, "total_consumption", stdate.strftime('%Y-%m-%d'))
     write_to_csv(data, "grid_history_from", stdate.strftime('%Y-%m-%d'))
+    write_to_csv(evcs_data, "evE", stdate.strftime('%Y-%m-%d'))
+    write_to_csv(consumption_data, "Bc", stdate.strftime('%Y-%m-%d'))
+    write_to_csv(consumption_data, "Pc", stdate.strftime('%Y-%m-%d'))
+    write_to_csv(consumption_data, "Gc", stdate.strftime('%Y-%m-%d'))
             
 
 
