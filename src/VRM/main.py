@@ -108,6 +108,38 @@ def main():
         consumption_data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, "consumption")
         evcs_data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, "evcs")
         # evdata = get_ev_summary_data(loginobj, installs["records"][0]["idSite"])
+
+        # ensure Gc series has a value for every 15‑minute interval; missing
+        # slots will be set to zero so that downstream plots/CSV are complete.
+        def fill_missing_intervals(series, interval_ms=15 * 60 * 1000):
+            if not series:
+                return series
+            series_sorted = sorted(series, key=lambda x: x[0])
+            filled = []
+            current = series_sorted[0][0]
+            end = series_sorted[-1][0]
+            idx = 0
+            while current <= end:
+                if idx < len(series_sorted) and series_sorted[idx][0] == current:
+                    filled.append(series_sorted[idx])
+                    idx += 1
+                else:
+                    filled.append([current, 0])
+                current += interval_ms
+            return filled
+
+        if "Gc" in consumption_data.get("records", {}):
+            consumption_data["records"]["Gc"] = fill_missing_intervals(consumption_data["records"]["Gc"])
+        if "Pc" in consumption_data.get("records", {}):
+            consumption_data["records"]["Pc"] = fill_missing_intervals(consumption_data["records"]["Pc"])
+        if "Bc" in consumption_data.get("records", {}):
+            consumption_data["records"]["Bc"] = fill_missing_intervals(consumption_data["records"]["Bc"])
+        if "grid_history_from" in data.get("records", {}):
+            data["records"]["grid_history_from"] = fill_missing_intervals(data["records"]["grid_history_from"])
+        if "evE" in evcs_data.get("records", {}):
+            evcs_data["records"]["evE"] = fill_missing_intervals(evcs_data["records"]["evE"])
+
+
         print(json.dumps(consumption_data, indent=4))
         print(json.dumps(evcs_data, indent=4))
         # print(json.dumps(evdata, indent=4))

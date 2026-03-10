@@ -5,9 +5,18 @@
     <title>Victron VRM Data</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #121212;
+            color: #e0e0e0;
+        }
         h1 { text-align: center; }
         .graph { margin-bottom: 40px; }
+        /* ensure Plotly graphs inherit dark background */
+        .plotly {
+            background-color: #121212 !important;
+        }
     </style>
 </head>
 <body>
