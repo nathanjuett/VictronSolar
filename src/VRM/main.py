@@ -106,6 +106,9 @@ def main():
         stdate -= datetime.timedelta(days=int(os.getenv("VRM_DAYSPAST")))
         data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, "live_feed")
         consumption_data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, "consumption")
+        solar_yield_data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, "solar_yield")
+        battery_stats_data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, "live_feed_other")
+        kwh_data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, "kwh")
         evcs_data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, "evcs")
         # evdata = get_ev_summary_data(loginobj, installs["records"][0]["idSite"])
 
@@ -150,21 +153,16 @@ def main():
             json.dump(consumption_data, outfile, indent=4)
         with open("output/output_evcs.json", "w") as outfile:
             json.dump(evcs_data, outfile, indent=4)
+        with open("output/output_solar_yield.json", "w") as outfile:
+            json.dump(solar_yield_data, outfile, indent=4)
+        with open("output/output_kwh.json", "w") as outfile:
+            json.dump(kwh_data, outfile, indent=4)
     else:
         with open("output.json", "r") as file:
             data = json.load(file)
             print("Using test data")
     print(json.dumps(data, indent=4))
-    write_to_csv(data, "Pdc", stdate.strftime('%Y-%m-%d'))
-    write_to_csv(data, "bs", stdate.strftime('%Y-%m-%d'))
-    write_to_csv(data, "bv", stdate.strftime('%Y-%m-%d'))
-    write_to_csv(data, "total_solar_yield", stdate.strftime('%Y-%m-%d'))
-    write_to_csv(data, "total_consumption", stdate.strftime('%Y-%m-%d'))
-    write_to_csv(data, "grid_history_from", stdate.strftime('%Y-%m-%d'))
-    write_to_csv(evcs_data, "evE", stdate.strftime('%Y-%m-%d'))
-    write_to_csv(consumption_data, "Bc", stdate.strftime('%Y-%m-%d'))
-    write_to_csv(consumption_data, "Pc", stdate.strftime('%Y-%m-%d'))
-    write_to_csv(consumption_data, "Gc", stdate.strftime('%Y-%m-%d'))
+  
             
 
 
