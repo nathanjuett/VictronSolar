@@ -1,9 +1,27 @@
 import requests
 import json
+from enum import Enum
 from dotenv import load_dotenv
 import os
 import datetime
 import csv
+
+class InstallDataType(Enum):
+    LIVE_FEED = "live_feed"
+    CONSUMPTION = "consumption"
+    SOLAR_YIELD = "solar_yield"
+    LIVE_FEED_OTHER = "live_feed_other"
+    KWH = "kwh"
+    EVCS = "evcs"
+
+class Interval(Enum):
+    MINS15 = "15mins"
+    HOURS = "hours"
+    HOURS2 = "2hours"
+    DAYS = "days"
+    WEEKS = "weeks"
+    MONTHS = "months"
+    YEARS = "years"
 
 def login():
     loginurl = "https://vrmapi.victronenergy.com/v2/auth/login"
@@ -44,7 +62,10 @@ def get_installs(loginobj):
     installs = response.json()
     return installs
 
-def get_install_data(loginobj, installid, startdate, type):
+def get_install_data(loginobj, installid, startdate, data_type: InstallDataType, interval: Interval = Interval.MINS15, enddate: datetime.datetime = datetime.datetime.now()):
+    if enddate is None:
+        enddate = startdate
+
     url = f"https://vrmapi.victronenergy.com/v2/installations/{installid}/stats"
 
     headers = {
@@ -53,7 +74,8 @@ def get_install_data(loginobj, installid, startdate, type):
     }
     
     timestamp = int(datetime.datetime.combine(startdate, datetime.datetime.min.time()).timestamp())
-    querystring = {"interval":"15mins", "start":str(timestamp), "type": type}
+    endtimestamp = int(enddate.timestamp())
+    querystring = {"interval": interval.value, "start": str(timestamp), "end": str(endtimestamp), "type": data_type.value}
 
     response = requests.request("GET", url, headers=headers, params=querystring)
     data = response.json()
@@ -103,20 +125,38 @@ def main():
         get_tokens(loginobj)
         installs = get_installs(loginobj)
         stdate = datetime.date.today() 
-        stdate -= datetime.timedelta(days=int(os.getenv("VRM_DAYSPAST")))
-        data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, "live_feed")
-        consumption_data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, "consumption")
-        solar_yield_data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, "solar_yield")
-        battery_stats_data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, "live_feed_other")
-        kwh_data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, "kwh")
-        evcs_data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, "evcs")
+        stdate -= datetime.timedelta(days=365) #datetime.timedelta(days=int(os.getenv("VRM_DAYSPAST")))
+        data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, InstallDataType.LIVE_FEED,Interval.MONTHS)
+        consumption_data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, InstallDataType.CONSUMPTION,Interval.MONTHS)
+        solar_yield_data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, InstallDataType.SOLAR_YIELD,Interval.MONTHS)
+        battery_stats_data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, InstallDataType.LIVE_FEED_OTHER,Interval.MONTHS)
+        kwh_data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, InstallDataType.KWH,Interval.MONTHS)
+        evcs_data = get_install_data(loginobj, installs["records"][0]["idSite"], stdate, InstallDataType.EVCS,Interval.MONTHS)
         # evdata = get_ev_summary_data(loginobj, installs["records"][0]["idSite"])
 
         # ensure Gc series has a value for every 15‑minute interval; missing
         # slots will be set to zero so that downstream plots/CSV are complete.
-        def fill_missing_intervals(series, interval_ms=15 * 60 * 1000):
+        def interval_to_ms(interval_enum):
+            if interval_enum == Interval.MINS15:
+                return 15 * 60 * 1000
+            if interval_enum == Interval.HOURS:
+                return 60 * 60 * 1000
+            if interval_enum == Interval.HOURS2:
+                return 2 * 60 * 60 * 1000
+            if interval_enum == Interval.DAYS:
+                return 24 * 60 * 60 * 1000
+            if interval_enum == Interval.WEEKS:
+                return 7 * 24 * 60 * 60 * 1000
+            if interval_enum == Interval.MONTHS:
+                return 30 * 24 * 60 * 60 * 1000
+            if interval_enum == Interval.YEARS:
+                return 365 * 24 * 60 * 60 * 1000
+            return 15 * 60 * 1000
+
+        def fill_missing_intervals(series, interval_enum=Interval.MINS15):
             if not series:
                 return series
+            interval_ms = interval_to_ms(interval_enum)
             series_sorted = sorted(series, key=lambda x: x[0])
             filled = []
             current = series_sorted[0][0]
@@ -132,15 +172,15 @@ def main():
             return filled
 
         if "Gc" in consumption_data.get("records", {}):
-            consumption_data["records"]["Gc"] = fill_missing_intervals(consumption_data["records"]["Gc"])
+            consumption_data["records"]["Gc"] = fill_missing_intervals(consumption_data["records"]["Gc"], Interval.MONTHS)
         if "Pc" in consumption_data.get("records", {}):
-            consumption_data["records"]["Pc"] = fill_missing_intervals(consumption_data["records"]["Pc"])
+            consumption_data["records"]["Pc"] = fill_missing_intervals(consumption_data["records"]["Pc"], Interval.MONTHS)
         if "Bc" in consumption_data.get("records", {}):
-            consumption_data["records"]["Bc"] = fill_missing_intervals(consumption_data["records"]["Bc"])
+            consumption_data["records"]["Bc"] = fill_missing_intervals(consumption_data["records"]["Bc"], Interval.MONTHS)
         if "grid_history_from" in data.get("records", {}):
-            data["records"]["grid_history_from"] = fill_missing_intervals(data["records"]["grid_history_from"])
+            data["records"]["grid_history_from"] = fill_missing_intervals(data["records"]["grid_history_from"], Interval.MONTHS)
         if "evE" in evcs_data.get("records", {}):
-            evcs_data["records"]["evE"] = fill_missing_intervals(evcs_data["records"]["evE"])
+            evcs_data["records"]["evE"] = fill_missing_intervals(evcs_data["records"]["evE"], Interval.MONTHS)
 
 
         print(json.dumps(consumption_data, indent=4))

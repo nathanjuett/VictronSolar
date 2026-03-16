@@ -13,25 +13,28 @@ load_dotenv()
 app = Flask(__name__)
 
 
-def load_cached_data():
-    kwh_records = {}
-    evcs_records = {}
-    try:
-        with open('output/output_kwh.json', 'r') as f:
-            kwh_records = json.load(f).get('records', {})
-    except Exception:
-        pass
-    try:
-        with open('output/output_evcs.json', 'r') as f:
-            evcs_records = json.load(f).get('records', {})
-    except Exception:
-        pass
-    return kwh_records, evcs_records
+def interval_to_ms(interval_enum):
+    if interval_enum == vrm_main.Interval.MINS15:
+        return 15 * 60 * 1000
+    if interval_enum == vrm_main.Interval.HOURS:
+        return 60 * 60 * 1000
+    if interval_enum == vrm_main.Interval.HOURS2:
+        return 2 * 60 * 60 * 1000
+    if interval_enum == vrm_main.Interval.DAYS:
+        return 24 * 60 * 60 * 1000
+    if interval_enum == vrm_main.Interval.WEEKS:
+        return 7 * 24 * 60 * 60 * 1000
+    if interval_enum == vrm_main.Interval.MONTHS:
+        return 30 * 24 * 60 * 60 * 1000
+    if interval_enum == vrm_main.Interval.YEARS:
+        return 365 * 24 * 60 * 60 * 1000
+    return 15 * 60 * 1000
 
 
-def fill_missing_intervals(series, interval_ms=15 * 60 * 1000):
+def fill_missing_intervals(series, interval_enum=vrm_main.Interval.MINS15):
     if not isinstance(series, list) or not series:
         return []
+    interval_ms = interval_to_ms(interval_enum)
     series_sorted = sorted(series, key=lambda x: x[0])
     filled = []
     current = series_sorted[0][0]
@@ -47,19 +50,17 @@ def fill_missing_intervals(series, interval_ms=15 * 60 * 1000):
     return filled
 
 
-def get_live_records(startdate):
+def get_live_records(startdate, enddate, interval):
     loginobj = vrm_main.login()
     installs = vrm_main.get_installs(loginobj)
     if not installs or 'records' not in installs or not installs['records']:
         raise RuntimeError('No installations found in VRM API response')
     site_id = installs['records'][0]['idSite']
 
-    consumption = vrm_main.get_install_data(loginobj, site_id, startdate, 'consumption')
-    kwh = vrm_main.get_install_data(loginobj, site_id, startdate, 'kwh')
-    evcs = vrm_main.get_install_data(loginobj, site_id, startdate, 'evcs')
-    battery_stats = vrm_main.get_install_data(loginobj, site_id, startdate, 'live_feed_other')
+    kwh = vrm_main.get_install_data(loginobj, site_id, startdate, vrm_main.InstallDataType.KWH, interval, enddate)
+    evcs = vrm_main.get_install_data(loginobj, site_id, startdate, vrm_main.InstallDataType.EVCS, interval, enddate)
+    battery_stats = vrm_main.get_install_data(loginobj, site_id, startdate, vrm_main.InstallDataType.LIVE_FEED_OTHER, interval, enddate)
 
-    cons_records = consumption.get('records', {}) if isinstance(consumption, dict) else {}
     kwh_records = kwh.get('records', {}) if isinstance(kwh, dict) else {}
     evcs_records = evcs.get('records', {}) if isinstance(evcs, dict) else {}
     battery_stats_records = battery_stats.get('records', {}) if isinstance(battery_stats, dict) else {}
@@ -67,9 +68,7 @@ def get_live_records(startdate):
     # Debug any VRM series with unexpected types (e.g. bool) so we can inspect API data shape.
     for key in ['Gc', 'Pc', 'Bc', 'Pb', 'Gb', 'kwh', 'evE', 'bs']:
         target = None
-        if key in cons_records:
-            target = cons_records[key]
-        elif key in kwh_records:
+        if key in kwh_records:
             target = kwh_records[key]
         elif key in evcs_records:
             target = evcs_records[key]
@@ -78,16 +77,17 @@ def get_live_records(startdate):
 
         if target is not None and not isinstance(target, list):
             print(f"[VRM DEBUG] Unexpected series type for {key}: {type(target).__name__}, value={target}")
+            target = []  # Treat as empty series to avoid breaking the app
 
     for key in ['Gc', 'Pc', 'Bc']:
-        if key in cons_records:
-            cons_records[key] = fill_missing_intervals(cons_records[key])
+        if key in kwh_records:
+            kwh_records[key] = fill_missing_intervals(kwh_records[key], interval)
     if 'evE' in evcs_records:
-        evcs_records['evE'] = fill_missing_intervals(evcs_records['evE'])
+        evcs_records['evE'] = fill_missing_intervals(evcs_records['evE'], interval)
     if 'bs' in battery_stats_records:
-        battery_stats_records['bs'] = fill_missing_intervals(battery_stats_records['bs'])
+        battery_stats_records['bs'] = fill_missing_intervals(battery_stats_records['bs'], interval)
 
-    return cons_records, kwh_records, evcs_records, battery_stats_records
+    return kwh_records, evcs_records, battery_stats_records
 
 
 def build_lookup(series):
@@ -112,6 +112,27 @@ def index():
     else:
         startdate = datetime.date.today() - datetime.timedelta(days=2)
 
+    end_str = request.args.get('enddate')
+    if end_str:
+        try:
+            enddate = datetime.datetime.strptime(end_str, '%Y-%m-%d')
+        except ValueError:
+            enddate = datetime.datetime.now()
+    else:
+        enddate = datetime.datetime.now()
+
+    interval_raw = request.args.get('interval', '15mins')
+    interval_options = {
+        '15mins': vrm_main.Interval.MINS15,
+        'hours': vrm_main.Interval.HOURS,
+        '2hours': vrm_main.Interval.HOURS2,
+        'days': vrm_main.Interval.DAYS,
+        'weeks': vrm_main.Interval.WEEKS,
+        'months': vrm_main.Interval.MONTHS,
+        'years': vrm_main.Interval.YEARS,
+    }
+    interval = interval_options.get(interval_raw, vrm_main.Interval.MINS15)
+
     cost_per_kwh = 0.3868
     cost_str = request.args.get('cost_per_kwh')
     if cost_str:
@@ -120,23 +141,20 @@ def index():
         except ValueError:
             cost_per_kwh = 0.3868
 
-    use_live = os.getenv('VRM_LIVEDATA', 'False').lower() == 'true'
     errors = []
     status_message = 'Using cached data.'
     battery_stats_records = {}
-    if use_live:
-        try:
-            cons_records, kwh_records, evcs_records, battery_stats_records = get_live_records(startdate)
-            status_message = f'Live data loaded from API (start {startdate}).'
-        except Exception as e:
-            status_message = f'Live API failed: {e}. Falling back to cached data.'
-            errors.append((datetime.datetime.now(), f'Live data failed: {e}', 'critical'))
-            cons_records, kwh_records, evcs_records = load_cached_data()
-    else:
-        kwh_records, evcs_records = load_cached_data()
-        kwh_records = kwh_records
+    
+    try:
+        kwh_records, evcs_records, battery_stats_records = get_live_records(startdate, enddate, interval)
+        status_message = f'Live data loaded from API (start {startdate} end {enddate} interval {interval}).'
+    except Exception as e:
+        status_message = f'Live API failed: {e}.'
+        errors.append((datetime.datetime.now(), f'Live data failed: {e}', 'critical'))
+       
+    
     if not kwh_records:
-        status_message = 'No live or cached data available.'
+        status_message = 'No live data available.'
 
     bc_lookup = build_lookup(kwh_records.get('Bc', []))
     pc_lookup = build_lookup(kwh_records.get('Pc', []))
@@ -255,6 +273,11 @@ def index():
         component_pct_grid = (total_grid / total_house) * 100
 
     ev_cost = total_car * cost_per_kwh
+    battery_cost = total_battery * cost_per_kwh
+    solar_cost = total_solar * cost_per_kwh
+    grid_cost = total_grid * cost_per_kwh
+    realized_savings = battery_cost + solar_cost
+    estimated_total_savings = realized_savings + ev_cost
     house_cost = total_house * cost_per_kwh
     raw_cost = total_raw * cost_per_kwh
 
@@ -263,25 +286,25 @@ def index():
     fig.add_trace(go.Scatter(x=times, y=raw_car, mode='lines', name='EV Charge'))
     fig.add_trace(go.Scatter(x=times, y=house_no_ev, mode='lines', name='House (no EV)'))
     fig.add_trace(go.Scatter(x=times, y=house_raw, mode='lines', name='House raw (Bc+Pc+Gc)'))
-    fig.update_layout(template='plotly_dark', title='EV vs House Consumption', xaxis=dict(title='Time'), yaxis=dict(title='kWh'))
+    fig.update_layout(template='plotly_dark', title='EV vs House Consumption', xaxis=dict(title='Time'), yaxis=dict(title='kWh'), legend=dict(orientation='h', y=-0.2))
     divs.append(plot(fig, output_type='div', include_plotlyjs=False))
 
     fig2 = go.Figure()
-    fig2.add_trace(go.Scatter(x=times, y=adj_pc, mode='lines', name='Pc adj (Solar)'))
-    fig2.add_trace(go.Scatter(x=times, y=adj_bc, mode='lines', name='Bc adj (Battery)'))
-    fig2.add_trace(go.Scatter(x=times, y=adj_gc, mode='lines', name='Gc adj (Grid)'))
-    fig2.update_layout(template='plotly_dark', title='Adjusted component consumption', xaxis=dict(title='Time'), yaxis=dict(title='kWh'))
+    fig2.add_trace(go.Scatter(x=times, y=adj_pc, mode='lines', name='Solar'))
+    fig2.add_trace(go.Scatter(x=times, y=adj_bc, mode='lines', name='Battery'))
+    fig2.add_trace(go.Scatter(x=times, y=adj_gc, mode='lines', name='Grid'))
+    fig2.update_layout(template='plotly_dark', title='House consumption (No EV)', xaxis=dict(title='Time'), yaxis=dict(title='kWh'), legend=dict(orientation='h', y=-0.2))
     divs.append(plot(fig2, output_type='div', include_plotlyjs=False))
 
     fig3 = go.Figure()
-    fig3.add_trace(go.Scatter(x=times, y=pb_flow, mode='lines', name='Pb (Power to house battery)'))
-    fig3.add_trace(go.Scatter(x=times, y=gb_flow, mode='lines', name='Gb (Grid bounce/house battery)'))
-    fig3.update_layout(template='plotly_dark', title='Pb and Gb battery flow', xaxis=dict(title='Time'), yaxis=dict(title='kWh'))
+    fig3.add_trace(go.Scatter(x=times, y=pb_flow, mode='lines', name='Solar'))
+    fig3.add_trace(go.Scatter(x=times, y=gb_flow, mode='lines', name='Grid'))
+    fig3.update_layout(template='plotly_dark', title='Battery Charging sources', xaxis=dict(title='Time'), yaxis=dict(title='kWh'), legend=dict(orientation='h', y=-0.2))
     divs.append(plot(fig3, output_type='div', include_plotlyjs=False))
 
     fig4 = go.Figure()
     fig4.add_trace(go.Scatter(x=times, y=bs_pct, mode='lines', name='Battery SOC %', line=dict(color='cyan')))
-    fig4.update_layout(template='plotly_dark', title='Battery State of Charge (%)', xaxis=dict(title='Time'), yaxis=dict(title='Battery %', range=[0, 100]))
+    fig4.update_layout(template='plotly_dark', title='Battery State of Charge (%)', xaxis=dict(title='Time'), yaxis=dict(title='Battery %', range=[0, 100]), legend=dict(orientation='h', y=-0.2))
     divs.append(plot(fig4, output_type='div', include_plotlyjs=False))
 
     error_rows = [
@@ -306,11 +329,21 @@ def index():
             'component_pct_grid': component_pct_grid,
             'cost_per_kwh': cost_per_kwh,
             'ev_cost': ev_cost,
+            'battery_cost': battery_cost,
+            'solar_cost': solar_cost,
+            'grid_cost': grid_cost,
+            'battery_kwh': total_battery,
+            'solar_kwh': total_solar,
+            'grid_kwh': total_grid,
+            'realized_savings': realized_savings,
+            'estimated_total_savings': estimated_total_savings,
             'house_cost': house_cost,
             'raw_cost': raw_cost,
         },
         error_rows=error_rows,
         startdate=startdate.strftime('%Y-%m-%d'),
+        enddate=enddate.strftime('%Y-%m-%d'),
+        interval=interval_raw,
         severity_map=severity_map,
         status_message=status_message,
     )

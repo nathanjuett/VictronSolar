@@ -28,7 +28,23 @@
                 <input id="startdate" name="startdate" type="date" value="{{ startdate }}" />
             </div>
             <div>
-                <label for="cost_per_kwh">Cost per kWh (€):</label>
+                <label for="enddate">End date:</label>
+                <input id="enddate" name="enddate" type="date" value="{{ enddate }}" />
+            </div>
+            <div>
+                <label for="interval">Interval:</label>
+                <select id="interval" name="interval">
+                    <option value="15mins" {% if interval == '15mins' %}selected{% endif %}>15 mins</option>
+                    <option value="hours" {% if interval == 'hours' %}selected{% endif %}>hours</option>
+                    <option value="2hours" {% if interval == '2hours' %}selected{% endif %}>2hours</option>
+                    <option value="days" {% if interval == 'days' %}selected{% endif %}>days</option>
+                    <option value="weeks" {% if interval == 'weeks' %}selected{% endif %}>weeks</option>
+                    <option value="months" {% if interval == 'months' %}selected{% endif %}>months</option>
+                    <option value="years" {% if interval == 'years' %}selected{% endif %}>years</option>
+                </select>
+            </div>
+            <div>
+                <label for="cost_per_kwh">Cost per kWh ($):</label>
                 <input id="cost_per_kwh" name="cost_per_kwh" type="number" step="0.0001" min="0" value="{{ totals.cost_per_kwh if totals.cost_per_kwh is not none else 0.3868 }}" />
             </div>
             <button type="submit">Reload</button>
@@ -38,45 +54,78 @@
         </div>
         <p style="font-size: 0.9em; color: #ccc;">EV application order: Solar (Pc) → Battery (Bc) → Grid (Gc). If EV removal makes any adjusted component negative, it is flagged.</p>
         <h2>Totals</h2>
-        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
-            <div style="background:#1f1f1f;border:1px solid #333;border-radius:8px;padding:12px;min-width:180px;flex:1;">
-                <div style="font-size:0.8em;color:#ccc;" title="Total EV charging consumption (kWh)">⚡ EV charging <span style="position:absolute;left:-9999px;">EV charging total</span></div>
-                <div style="font-size:1.3em;font-weight:bold;color:#82c4ff;">{{ totals.ev_total | round(4) }} kWh</div>
-                <div style="color:#ccc;">Cost: €{{ totals.ev_cost | round(2) }}</div>
+        <div style="display:flex; gap:10px; margin-bottom:12px;">
+            <div style="flex:1; display:flex; flex-direction:column; gap:10px;">
+                <div style="background:#1f1f1f;border:1px solid #333;border-radius:8px;padding:12px;">
+                    <div style="font-size:0.8em;color:#ccc;">🏠📉 House raw</div>
+                    <div style="font-size:1.3em;font-weight:bold;color:#f8a25d;">{{ totals.house_total_raw | round(4) }} kWh</div>
+                    <div style="color:#ccc;">Cost: ${{ totals.raw_cost | round(2) }}</div>
+                </div>
+                <div style="background:#1f1f1f;border:1px solid #333;border-radius:8px;padding:12px;">
+                    <div style="font-size:0.8em;color:#ccc;">⚡ EV charging</div>
+                    <div style="font-size:1.3em;font-weight:bold;color:#82c4ff;">{{ totals.ev_total | round(4) }} kWh</div>
+                    <div style="color:#ccc;">Cost: ${{ totals.ev_cost | round(2) }}</div>
+                </div>
+                <div style="background:#1f1f1f;border:1px solid #333;border-radius:8px;padding:12px;">
+                    <div style="font-size:0.8em;color:#ccc;">🏠 House adjusted</div>
+                    <div style="font-size:1.3em;font-weight:bold;color:#95e05d;">{{ totals.house_total_adjusted | round(4) }} kWh</div>
+                    <div style="color:#ccc;">Cost: ${{ totals.house_cost | round(2) }}</div>
+                </div>
+                <div style="background:#1f1f1f;border:1px solid #333;border-radius:8px;padding:12px;">
+                    <div style="font-size:0.8em;color:#ccc;">🏙️ Grid</div>
+                    <div style="font-size:1.3em;font-weight:bold;color:#ff8e5c;">{{ totals.grid_kwh | round(4) }} kWh</div>
+                    <div style="color:#ccc;">Cost: ${{ totals.grid_cost | round(2) }}</div>
+                </div>
+                <div style="background:#1f1f1f;border:1px solid #333;border-radius:8px;padding:12px;">
+                    <div style="font-size:0.8em;color:#ccc;">☀️ Solar</div>
+                    <div style="font-size:1.3em;font-weight:bold;color:#f8a25d;">{{ totals.solar_kwh | round(4) }} kWh</div>
+                    <div style="color:#ccc;">Savings: ${{ totals.solar_cost | round(2) }}</div>
+                </div>
+                <div style="background:#1f1f1f;border:1px solid #333;border-radius:8px;padding:12px;">
+                    <div style="font-size:0.8em;color:#ccc;">🔋 Battery</div>
+                    <div style="font-size:1.3em;font-weight:bold;color:#00d8ff;">{{ totals.battery_kwh | round(4) }} kWh</div>
+                    <div style="color:#ccc;">Savings: ${{ totals.battery_cost | round(2) }}</div>
+                </div>
             </div>
-            <div style="background:#1f1f1f;border:1px solid #333;border-radius:8px;padding:12px;min-width:180px;flex:1;">
-                <div style="font-size:0.8em;color:#ccc;" title="House consumption after EV charging adjustment (kWh)">🏠 House adjusted <span style="position:absolute;left:-9999px;">House adjusted consumption</span></div>
-                <div style="font-size:1.3em;font-weight:bold;color:#95e05d;">{{ totals.house_total_adjusted | round(4) }} kWh</div>
-                <div style="color:#ccc;">Cost: €{{ totals.house_cost | round(2) }}</div>
+            <div style="flex:1; display:flex; flex-direction:column; gap:10px;">
+                <div style="background:#1f1f1f;border:1px solid #333;border-radius:8px;padding:12px;">
+                    <div style="font-size:0.8em;color:#ccc;">💰 Realized Savings</div>
+                    <div style="font-size:1.3em;font-weight:bold;color:#6dff8d;">${{ totals.realized_savings | round(2) }}</div>
+                    <div style="color:#ccc;">Battery + Solar</div>
+                </div>
+                <div style="background:#1f1f1f;border:1px solid #333;border-radius:8px;padding:12px;">
+                    <div style="font-size:0.8em;color:#ccc;">💸 Estimated Total Savings</div>
+                    <div style="font-size:1.3em;font-weight:bold;color:#8affd1;">${{ totals.estimated_total_savings | round(2) }}</div>
+                    <div style="color:#ccc;">Realized + EV charging</div>
+                </div>
+                <div style="background:#1f1f1f;border:1px solid #333;border-radius:8px;padding:12px;">
+                    <div style="font-size:0.8em;color:#ccc;">🔋 Battery SOC</div>
+                    {% if totals.battery_soc_latest is not none %}
+                        <div style="font-size:1.3em;font-weight:bold;color:#00d8ff;">{{ totals.battery_soc_latest | round(2) }}%</div>
+                        <div style="color:#ccc;">min {{ totals.battery_soc_min | round(2) }}%, max {{ totals.battery_soc_max | round(2) }}%</div>
+                    {% else %}
+                        <div style="font-size:1.1em;font-weight:bold;color:#ff867f;">Unavailable</div>
+                    {% endif %}
+                </div>
+                <div style="background:#1f1f1f;border:1px solid #333;border-radius:8px;padding:12px;">
+                    <div style="font-size:0.8em;color:#ccc;">🚗 Consumed split</div>
+                    {% if totals.consumed_pct_ev is not none %}
+                        <div style="font-size:1.3em;font-weight:bold;color:#e7dd5f;">EV {{ totals.consumed_pct_ev | round(2) }}% / House {{ totals.consumed_pct_house | round(2) }}%</div>
+                    {% else %}
+                        <div style="font-size:1.1em;color:#ccc;">No split available</div>
+                    {% endif %}
+                </div>
+                <div style="background:#1f1f1f;border:1px solid #333;border-radius:8px;padding:12px;">
+                    <div style="font-size:0.8em;color:#ccc;">⚡🌞🏙️ House source mix</div>
+                    {% if totals.component_pct_battery is not none %}
+                        <div style="font-size:0.9em;color:#fff;">Battery {{ totals.component_pct_battery | round(2) }}%</div>
+                        <div style="font-size:0.9em;color:#fff;">Solar {{ totals.component_pct_solar | round(2) }}%</div>
+                        <div style="font-size:0.9em;color:#fff;">Grid {{ totals.component_pct_grid | round(2) }}%</div>
+                    {% else %}
+                        <div style="font-size:1.1em;color:#ccc;">Unavailable</div>
+                    {% endif %}
+                </div>
             </div>
-            <div style="background:#1f1f1f;border:1px solid #333;border-radius:8px;padding:12px;min-width:180px;flex:1;">
-                <div style="font-size:0.8em;color:#ccc;" title="Raw house consumption from Bc+Pc+Gc without EV adjustments (kWh)">🏠📉 House raw <span style="position:absolute;left:-9999px;">House raw consumption</span></div>
-                <div style="font-size:1.3em;font-weight:bold;color:#f8a25d;">{{ totals.house_total_raw | round(4) }} kWh</div>
-                <div style="color:#ccc;">Cost: €{{ totals.raw_cost | round(2) }}</div>
-            </div>
-            <div style="background:#1f1f1f;border:1px solid #333;border-radius:8px;padding:12px;min-width:220px;flex:1 1 260px;">
-                <div style="font-size:0.8em;color:#ccc;" title="Battery state of charge (%) from bs series">🔋 Battery SOC</div>
-                {% if totals.battery_soc_latest is not none %}
-                    <div style="font-size:1.3em;font-weight:bold;color:#00d8ff;">{{ totals.battery_soc_latest | round(2) }}%</div>
-                    <div style="color:#ccc;">min {{ totals.battery_soc_min | round(2) }}%, max {{ totals.battery_soc_max | round(2) }}%</div>
-                {% else %}
-                    <div style="font-size:1.1em;font-weight:bold;color:#ff867f;">Unavailable</div>
-                {% endif %}
-            </div>
-            {% if totals.consumed_pct_ev is not none %}
-            <div style="background:#1f1f1f;border:1px solid #333;border-radius:8px;padding:12px;min-width:180px;flex:1;">
-                <div style="font-size:0.8em;color:#ccc;" title="Percent split of total consumption between EV and house">🚗 Consumed split</div>
-                <div style="font-size:1.3em;font-weight:bold;color:#e7dd5f;">EV {{ totals.consumed_pct_ev | round(2) }}% / House {{ totals.consumed_pct_house | round(2) }}%</div>
-            </div>
-            {% endif %}
-            {% if totals.component_pct_battery is not none %}
-            <div style="background:#1f1f1f;border:1px solid #333;border-radius:8px;padding:12px;min-width:180px;flex:1;">
-                <div style="font-size:0.8em;color:#ccc;" title="Percent of adjusted house consumption from battery, solar, and grid">⚡🌞🏙️ House source mix</div>
-                <div style="font-size:0.9em;color:#fff;">Battery {{ totals.component_pct_battery | round(2) }}%</div>
-                <div style="font-size:0.9em;color:#fff;">Solar {{ totals.component_pct_solar | round(2) }}%</div>
-                <div style="font-size:0.9em;color:#fff;">Grid {{ totals.component_pct_grid | round(2) }}%</div>
-            </div>
-            {% endif %}
         </div>
     </section>
 
