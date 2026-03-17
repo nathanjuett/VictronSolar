@@ -20,7 +20,7 @@
     </style>
 </head>
 <body>
-    <h1>VRM Consumption Summary</h1>
+    <h1>House Totals</h1>
     <section style="margin-bottom: 20px;">
         <form method="get" style="margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end;">
             <div>
@@ -49,11 +49,19 @@
             </div>
             <button type="submit">Reload</button>
         </form>
-        <div style="margin-bottom: 12px; padding: 10px; border-radius: 6px; background: #1f1f1f; border: 1px solid #333;">
-            <strong>Data status:</strong> {{ status_message }}
-        </div>
+        <details style="margin-bottom: 12px; background: #1f1f1f; border: 1px solid #333; border-radius: 6px; padding: 10px;">
+            <summary style="font-weight: bold; cursor: pointer; color: #fff; margin-bottom: 8px;">Data status <span style="font-size:1.1em;">{{ '🟢' if status_message.startswith('Live data loaded') else '🔴' }}</span></summary>
+            <div style="margin-top: 6px; color: #e0e0e0;">{{ status_message }}</div>
+        </details>
         <p style="font-size: 0.9em; color: #ccc;">EV application order: Solar (Pc) → Battery (Bc) → Grid (Gc). If EV removal makes any adjusted component negative, it is flagged.</p>
         <h2>Totals</h2>
+        <div style="display:flex; gap:10px; flex-wrap: wrap; margin-bottom: 16px;">
+            {% for p in pie_graphs %}
+                <div style="flex:1; min-width:260px; background:#1f1f1f; border:1px solid #333; border-radius:8px; padding:6px;">
+                    {{ p | safe }}
+                </div>
+            {% endfor %}
+        </div>
         <div style="display:flex; gap:10px; margin-bottom:12px;">
             <div style="flex:1; display:flex; flex-direction:column; gap:10px;">
                 <div style="background:#1f1f1f;border:1px solid #333;border-radius:8px;padding:12px;">

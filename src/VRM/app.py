@@ -1,10 +1,8 @@
 from flask import Flask, render_template, request
-import json
 import datetime
 import plotly.graph_objs as go
 from plotly.offline import plot
 from dotenv import load_dotenv
-import os
 
 import main as vrm_main
 
@@ -12,29 +10,10 @@ load_dotenv()
 
 app = Flask(__name__)
 
-
-def interval_to_ms(interval_enum):
-    if interval_enum == vrm_main.Interval.MINS15:
-        return 15 * 60 * 1000
-    if interval_enum == vrm_main.Interval.HOURS:
-        return 60 * 60 * 1000
-    if interval_enum == vrm_main.Interval.HOURS2:
-        return 2 * 60 * 60 * 1000
-    if interval_enum == vrm_main.Interval.DAYS:
-        return 24 * 60 * 60 * 1000
-    if interval_enum == vrm_main.Interval.WEEKS:
-        return 7 * 24 * 60 * 60 * 1000
-    if interval_enum == vrm_main.Interval.MONTHS:
-        return 30 * 24 * 60 * 60 * 1000
-    if interval_enum == vrm_main.Interval.YEARS:
-        return 365 * 24 * 60 * 60 * 1000
-    return 15 * 60 * 1000
-
-
 def fill_missing_intervals(series, interval_enum=vrm_main.Interval.MINS15):
     if not isinstance(series, list) or not series:
         return []
-    interval_ms = interval_to_ms(interval_enum)
+    interval_ms = interval_enum.value["ms"]  
     series_sorted = sorted(series, key=lambda x: x[0])
     filled = []
     current = series_sorted[0][0]
@@ -115,7 +94,7 @@ def index():
     end_str = request.args.get('enddate')
     if end_str:
         try:
-            enddate = datetime.datetime.strptime(end_str, '%Y-%m-%d')
+            enddate = datetime.datetime.strptime(end_str + " 23:59:59", '%Y-%m-%d %H:%M:%S')
         except ValueError:
             enddate = datetime.datetime.now()
     else:
@@ -289,11 +268,25 @@ def index():
     fig.update_layout(template='plotly_dark', title='EV vs House Consumption', xaxis=dict(title='Time'), yaxis=dict(title='kWh'), legend=dict(orientation='h', y=-0.2))
     divs.append(plot(fig, output_type='div', include_plotlyjs=False))
 
+    # 3D plot: time vs source index vs kWh for fluid-source assumption
     fig2 = go.Figure()
-    fig2.add_trace(go.Scatter(x=times, y=adj_pc, mode='lines', name='Solar'))
-    fig2.add_trace(go.Scatter(x=times, y=adj_bc, mode='lines', name='Battery'))
-    fig2.add_trace(go.Scatter(x=times, y=adj_gc, mode='lines', name='Grid'))
-    fig2.update_layout(template='plotly_dark', title='House consumption (No EV)', xaxis=dict(title='Time'), yaxis=dict(title='kWh'), legend=dict(orientation='h', y=-0.2))
+    source_y = [1] * len(times)
+    fig2.add_trace(go.Scatter3d(x=times, y=source_y, z=adj_pc, mode='lines+markers', name='Solar', line=dict(color='#f8a25d'), marker=dict(size=2)))
+    source_y = [2] * len(times)
+    fig2.add_trace(go.Scatter3d(x=times, y=source_y, z=adj_bc, mode='lines+markers', name='Battery', line=dict(color='#00d8ff'), marker=dict(size=2)))
+    source_y = [3] * len(times)
+    fig2.add_trace(go.Scatter3d(x=times, y=source_y, z=adj_gc, mode='lines+markers', name='Grid', line=dict(color='#ff8e5c'), marker=dict(size=2)))
+    fig2.update_layout(
+        template='plotly_dark',
+        title='House consumption (No EV) 3D source mix',
+        scene=dict(
+            xaxis=dict(title='Time'),
+            yaxis=dict(title='Source', tickmode='array', tickvals=[1,2,3], ticktext=['Solar','Battery','Grid']),
+            zaxis=dict(title='kWh')
+        ),
+        legend=dict(orientation='h', y=-0.2),
+        margin=dict(l=0, r=0, b=0, t=40)
+    )
     divs.append(plot(fig2, output_type='div', include_plotlyjs=False))
 
     fig3 = go.Figure()
@@ -307,6 +300,28 @@ def index():
     fig4.update_layout(template='plotly_dark', title='Battery State of Charge (%)', xaxis=dict(title='Time'), yaxis=dict(title='Battery %', range=[0, 100]), legend=dict(orientation='h', y=-0.2))
     divs.append(plot(fig4, output_type='div', include_plotlyjs=False))
 
+    # Pie charts for Totals section
+    consumed_values = [total_car, total_house]
+    consumed_labels = ['EV', 'House']
+    pie1 = go.Figure(go.Pie(labels=consumed_labels, values=consumed_values, hole=0.35, marker=dict(colors=['#82c4ff', '#95e05d'])))
+    pie1.update_layout(template='plotly_dark', title='Consumed Split (EV vs House)', margin=dict(t=35, b=5, l=5, r=5), legend=dict(orientation='h', y=-0.2), width=320, height=260)
+
+    house_values = [total_battery, total_solar, total_grid]
+    house_labels = ['Battery', 'Solar', 'Grid']
+    pie2 = go.Figure(go.Pie(labels=house_labels, values=house_values, hole=0.35, marker=dict(colors=['#00d8ff', '#f8a25d', '#ff8e5c'])))
+    pie2.update_layout(template='plotly_dark', title='House Mix', margin=dict(t=35, b=5, l=5, r=5), legend=dict(orientation='h', y=-0.2), width=320, height=260)
+
+    overall_values = [total_car, total_grid, total_solar, total_battery]
+    overall_labels = ['EV', 'Grid', 'Solar', 'Battery']
+    pie3 = go.Figure(go.Pie(labels=overall_labels, values=overall_values, hole=0.35, marker=dict(colors=['#82c4ff', '#ff8e5c', '#f8a25d', '#00d8ff'])))
+    pie3.update_layout(template='plotly_dark', title='EV + Grid + Solar + Battery (%)', margin=dict(t=35, b=5, l=5, r=5), legend=dict(orientation='h', y=-0.2), width=320, height=260)
+
+    pie_graphs = [
+        plot(pie1, output_type='div', include_plotlyjs=False),
+        plot(pie2, output_type='div', include_plotlyjs=False),
+        plot(pie3, output_type='div', include_plotlyjs=False),
+    ]
+
     error_rows = [
         {'time': t.strftime('%Y-%m-%d %H:%M'), 'message': msg, 'severity': severity}
         for t, msg, severity in errors
@@ -315,6 +330,7 @@ def index():
     return render_template(
         'index.html',
         graphs=divs,
+        pie_graphs=pie_graphs,
         totals={
             'ev_total': total_car,
             'house_total_adjusted': total_house,
