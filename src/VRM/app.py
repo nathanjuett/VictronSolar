@@ -11,6 +11,9 @@ load_dotenv()
 app = Flask(__name__)
 
 def fill_missing_intervals(series, interval_enum=vrm_main.Interval.MINS15):
+    """
+    Fills missing intervals in a time series with zero values based on the specified interval enumeration.
+    """
     if not isinstance(series, list) or not series:
         return []
     interval_ms = interval_enum.value["ms"]  
@@ -30,6 +33,9 @@ def fill_missing_intervals(series, interval_enum=vrm_main.Interval.MINS15):
 
 
 def get_live_records(startdate, enddate, interval):
+    """
+    Gets live records from the VRM API for the specified date range and interval, and returns the KWH, EVCS, and battery stats records as JSON objects.
+    """
     loginobj = vrm_main.login()
     installs = vrm_main.get_installs(loginobj)
     if not installs or 'records' not in installs or not installs['records']:
@@ -70,6 +76,9 @@ def get_live_records(startdate, enddate, interval):
 
 
 def build_lookup(series):
+    """
+    Builds a lookup dictionary from a series of [timestamp, value] pairs for easy access to values by timestamp.
+    """
     if not isinstance(series, list):
         return {}
     out = {}
@@ -82,6 +91,14 @@ def build_lookup(series):
 
 @app.route('/')
 def index():
+    """
+    Renders the main dashboard page with graphs and totals based on live data from the VRM API, using optional query parameters for date range, interval, and cost per kWh.
+        Query parameters:
+            - startdate: Start date for data retrieval in YYYY-MM-DD format (default: 2 days ago)
+            - enddate: End date for data retrieval in YYYY-MM-DD format (default: now)
+            - interval: Data interval for aggregation (options: 15mins, hours, 2hours, days, weeks, months, years; default: 15mins)
+            - cost_per_kwh: Cost per kWh for calculating costs and savings (default: 0.3868)
+    """
     start_str = request.args.get('startdate')
     if start_str:
         try:
