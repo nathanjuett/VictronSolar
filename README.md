@@ -1,5 +1,16 @@
 # VictronSolar
 
+## Description
+ - Small project to visualize EV and House power consumption.
+ - Attempting to write code mainly with AI generated code.
+ - Includes estimated electricity costs and savings from solar and batteries.
+ - Attempts to remove EV power from totals reported from Cerbo so you can see how much power the EV is using and how much the rest of the house is using.
+ - Also includes battery charging sources and Battery State of Charge
+ - Adjustable dates and time intervals as well as Cost per kWh
+
+
+![image of webpage](Dashboard.png "Dashboard")
+## Environment requirements
 Requires .env file with the following values
 ```
 VRM_USERNAME=[username]
@@ -7,7 +18,6 @@ VRM_PASSWORD="[password]"
 VRM_DAYSPAST=30'
 ```
 ## Web UI
-
 A small Flask app can display interactive graphs from live Victron API data.
 
 1. Install the Python dependencies (use the provided virtualenv or your own):
