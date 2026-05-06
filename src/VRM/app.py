@@ -287,21 +287,20 @@ def index():
 
     # 3D plot: time vs source index vs kWh for fluid-source assumption
     fig2 = go.Figure()
-    source_y = [1] * len(times)
-    fig2.add_trace(go.Scatter3d(x=times, y=source_y, z=adj_pc, mode='lines+markers', name='Solar', line=dict(color='#f8a25d'), marker=dict(size=2)))
-    source_y = [2] * len(times)
-    fig2.add_trace(go.Scatter3d(x=times, y=source_y, z=adj_bc, mode='lines+markers', name='Battery', line=dict(color='#00d8ff'), marker=dict(size=2)))
-    source_y = [3] * len(times)
-    fig2.add_trace(go.Scatter3d(x=times, y=source_y, z=adj_gc, mode='lines+markers', name='Grid', line=dict(color='#ff8e5c'), marker=dict(size=2)))
+    if times and adj_pc and adj_bc and adj_gc:
+        z_data = [adj_pc, adj_bc, adj_gc]
+        y_sources = ['Solar', 'Battery', 'Grid']
+
+        fig2.add_trace(go.Surface(x=times, y=y_sources, z=z_data, colorscale='Viridis'))
+
     fig2.update_layout(
         template='plotly_dark',
         title='House consumption (No EV) 3D source mix',
         scene=dict(
             xaxis=dict(title='Time'),
-            yaxis=dict(title='Source', tickmode='array', tickvals=[1,2,3], ticktext=['Solar','Battery','Grid']),
+            yaxis=dict(title='Source'),
             zaxis=dict(title='kWh')
         ),
-        legend=dict(orientation='h', y=-0.2),
         margin=dict(l=0, r=0, b=0, t=40)
     )
     divs.append(plot(fig2, output_type='div', include_plotlyjs=False))
