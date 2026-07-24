@@ -2,3 +2,4 @@ flask
 plotly
 python-dotenv
 requests
+openpyxl

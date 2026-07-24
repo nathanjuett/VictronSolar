@@ -1,8 +1,10 @@
-from flask import Flask, render_template, request
+from flask import Flask, Response, render_template, request
+from io import BytesIO
 import datetime
 import plotly.graph_objs as go
 from plotly.offline import plot
 from dotenv import load_dotenv
+from openpyxl import Workbook
 
 import main as vrm_main
 
@@ -89,17 +91,9 @@ def build_lookup(series):
     return out
 
 
-@app.route('/')
-def index():
-    """
-    Renders the main dashboard page with graphs and totals based on live data from the VRM API, using optional query parameters for date range, interval, and cost per kWh.
-        Query parameters:
-            - startdate: Start date for data retrieval in YYYY-MM-DD format (default: 2 days ago)
-            - enddate: End date for data retrieval in YYYY-MM-DD format (default: now)
-            - interval: Data interval for aggregation (options: 15mins, hours, 2hours, days, weeks, months, years; default: 15mins)
-            - cost_per_kwh: Cost per kWh for calculating costs and savings (default: 0.3868)
-    """
-    start_str = request.args.get('startdate')
+def parse_dashboard_params(args):
+    """Parses dashboard request parameters into a consistent date/interval/cost set."""
+    start_str = args.get('startdate')
     if start_str:
         try:
             startdate = datetime.datetime.strptime(start_str, '%Y-%m-%d').date()
@@ -108,7 +102,7 @@ def index():
     else:
         startdate = datetime.date.today() - datetime.timedelta(days=2)
 
-    end_str = request.args.get('enddate')
+    end_str = args.get('enddate')
     if end_str:
         try:
             enddate = datetime.datetime.strptime(end_str + " 23:59:59", '%Y-%m-%d %H:%M:%S')
@@ -117,7 +111,7 @@ def index():
     else:
         enddate = datetime.datetime.now()
 
-    interval_raw = request.args.get('interval', '15mins')
+    interval_raw = args.get('interval', '15mins')
     interval_options = {
         '15mins': vrm_main.Interval.MINS15,
         'hours': vrm_main.Interval.HOURS,
@@ -130,25 +124,29 @@ def index():
     interval = interval_options.get(interval_raw, vrm_main.Interval.MINS15)
 
     cost_per_kwh = 0.3868
-    cost_str = request.args.get('cost_per_kwh')
+    cost_str = args.get('cost_per_kwh')
     if cost_str:
         try:
             cost_per_kwh = float(cost_str)
         except ValueError:
             cost_per_kwh = 0.3868
 
+    return startdate, enddate, interval, interval_raw, cost_per_kwh
+
+
+def build_dashboard_payload(startdate, enddate, interval, interval_raw, cost_per_kwh):
+    """Builds the dashboard payload, including charts and totals, from the live VRM data."""
     errors = []
     status_message = 'Using cached data.'
     battery_stats_records = {}
-    
+
     try:
         kwh_records, evcs_records, battery_stats_records = get_live_records(startdate, enddate, interval)
         status_message = f'Live data loaded from API (start {startdate} end {enddate} interval {interval}).'
     except Exception as e:
         status_message = f'Live API failed: {e}.'
         errors.append((datetime.datetime.now(), f'Live data failed: {e}', 'critical'))
-       
-    
+
     if not kwh_records:
         status_message = 'No live data available.'
 
@@ -285,12 +283,10 @@ def index():
     fig.update_layout(template='plotly_dark', title='EV vs House Consumption', xaxis=dict(title='Time'), yaxis=dict(title='kWh'), legend=dict(orientation='h', y=-0.2))
     divs.append(plot(fig, output_type='div', include_plotlyjs=False))
 
-    # 3D plot: time vs source index vs kWh for fluid-source assumption
     fig2 = go.Figure()
     if times and adj_pc and adj_bc and adj_gc:
         z_data = [adj_pc, adj_bc, adj_gc]
         y_sources = ['Solar', 'Battery', 'Grid']
-
         fig2.add_trace(go.Surface(x=times, y=y_sources, z=z_data, colorscale='Viridis'))
 
     fig2.update_layout(
@@ -316,7 +312,6 @@ def index():
     fig4.update_layout(template='plotly_dark', title='Battery State of Charge (%)', xaxis=dict(title='Time'), yaxis=dict(title='Battery %', range=[0, 100]), legend=dict(orientation='h', y=-0.2))
     divs.append(plot(fig4, output_type='div', include_plotlyjs=False))
 
-    # Pie charts for Totals section
     consumed_values = [total_car, total_house]
     consumed_labels = ['EV', 'House']
     pie1 = go.Figure(go.Pie(labels=consumed_labels, values=consumed_values, hole=0.35, marker=dict(colors=['#82c4ff', '#95e05d'])))
@@ -343,11 +338,10 @@ def index():
         for t, msg, severity in errors
     ]
 
-    return render_template(
-        'index.html',
-        graphs=divs,
-        pie_graphs=pie_graphs,
-        totals={
+    return {
+        'graphs': divs,
+        'pie_graphs': pie_graphs,
+        'totals': {
             'ev_total': total_car,
             'house_total_adjusted': total_house,
             'house_total_raw': total_raw,
@@ -372,12 +366,92 @@ def index():
             'house_cost': house_cost,
             'raw_cost': raw_cost,
         },
-        error_rows=error_rows,
-        startdate=startdate.strftime('%Y-%m-%d'),
-        enddate=enddate.strftime('%Y-%m-%d'),
-        interval=interval_raw,
-        severity_map=severity_map,
-        status_message=status_message,
+        'error_rows': error_rows,
+        'startdate': startdate.strftime('%Y-%m-%d'),
+        'enddate': enddate.strftime('%Y-%m-%d'),
+        'interval': interval_raw,
+        'severity_map': severity_map,
+        'status_message': status_message,
+        'kwh_records': kwh_records,
+        'evcs_records': evcs_records,
+        'battery_stats_records': battery_stats_records,
+    }
+
+
+@app.route('/export')
+def export_data():
+    """Exports the currently loaded VRM data into an Excel workbook with multiple worksheets."""
+    startdate, enddate, interval, interval_raw, cost_per_kwh = parse_dashboard_params(request.args)
+    payload = build_dashboard_payload(startdate, enddate, interval, interval_raw, cost_per_kwh)
+
+    workbook = Workbook()
+    summary_sheet = workbook.active
+    summary_sheet.title = 'Summary'
+    summary_sheet.append(['metric', 'value'])
+    summary_sheet.append(['status', payload['status_message']])
+    summary_sheet.append(['start_date', payload['startdate']])
+    summary_sheet.append(['end_date', payload['enddate']])
+    summary_sheet.append(['interval', payload['interval']])
+    summary_sheet.append(['cost_per_kwh', payload['totals']['cost_per_kwh']])
+    for key, value in payload['totals'].items():
+        if key != 'cost_per_kwh':
+            summary_sheet.append([key, value])
+    summary_sheet.append(['severity_critical', payload['severity_map'].get('critical', 0)])
+    summary_sheet.append(['severity_high', payload['severity_map'].get('high', 0)])
+    summary_sheet.append(['severity_medium', payload['severity_map'].get('medium', 0)])
+
+    def add_series_sheet(name, records):
+        sheet = workbook.create_sheet(title=name)
+        sheet.append(['timestamp_ms', 'timestamp', 'series', 'value'])
+        for series_name, series_values in records.items():
+            if not isinstance(series_values, list):
+                continue
+            for point in series_values:
+                if isinstance(point, (list, tuple)) and len(point) >= 2:
+                    ts, value = point[0], point[1]
+                    timestamp = datetime.datetime.fromtimestamp(ts / 1000).strftime('%Y-%m-%d %H:%M:%S')
+                    sheet.append([ts, timestamp, series_name, value])
+
+    add_series_sheet('Raw KWH', payload['kwh_records'])
+    add_series_sheet('Raw EVCS', payload['evcs_records'])
+    add_series_sheet('Raw Battery Stats', payload['battery_stats_records'])
+
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+
+    filename = f"vrm-export-{payload['startdate']}-to-{payload['enddate']}.xlsx"
+    return Response(
+        output.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename={filename}'},
+    )
+
+
+@app.route('/')
+def index():
+    """
+    Renders the main dashboard page with graphs and totals based on live data from the VRM API, using optional query parameters for date range, interval, and cost per kWh.
+        Query parameters:
+            - startdate: Start date for data retrieval in YYYY-MM-DD format (default: 2 days ago)
+            - enddate: End date for data retrieval in YYYY-MM-DD format (default: now)
+            - interval: Data interval for aggregation (options: 15mins, hours, 2hours, days, weeks, months, years; default: 15mins)
+            - cost_per_kwh: Cost per kWh for calculating costs and savings (default: 0.3868)
+    """
+    startdate, enddate, interval, interval_raw, cost_per_kwh = parse_dashboard_params(request.args)
+    payload = build_dashboard_payload(startdate, enddate, interval, interval_raw, cost_per_kwh)
+
+    return render_template(
+        'index.html',
+        graphs=payload['graphs'],
+        pie_graphs=payload['pie_graphs'],
+        totals=payload['totals'],
+        error_rows=payload['error_rows'],
+        startdate=payload['startdate'],
+        enddate=payload['enddate'],
+        interval=payload['interval'],
+        severity_map=payload['severity_map'],
+        status_message=payload['status_message'],
     )
 
 
