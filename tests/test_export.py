@@ -39,6 +39,14 @@ class ExportRouteTest(unittest.TestCase):
 
         workbook = load_workbook(BytesIO(response.data))
         self.assertEqual(workbook.sheetnames, ["Summary", "Raw KWH", "Raw EVCS", "Raw Battery Stats"])
+        raw_kwh_sheet = workbook["Raw KWH"]
+        self.assertEqual(raw_kwh_sheet.cell(row=1, column=1).value, "timestamp_ms")
+        self.assertEqual(raw_kwh_sheet.cell(row=1, column=3).value, "Grid")
+        self.assertEqual(raw_kwh_sheet.cell(row=1, column=4).value, "Solar")
+
+        raw_battery_sheet = workbook["Raw Battery Stats"]
+        self.assertEqual(raw_battery_sheet.cell(row=1, column=1).value, "timestamp_ms")
+        self.assertEqual(raw_battery_sheet.cell(row=1, column=3).value, "Battery SOC")
 
 
 if __name__ == "__main__":

@@ -412,9 +412,58 @@ def export_data():
                     timestamp = datetime.datetime.fromtimestamp(ts / 1000).strftime('%Y-%m-%d %H:%M:%S')
                     sheet.append([ts, timestamp, series_name, value])
 
-    add_series_sheet('Raw KWH', payload['kwh_records'])
+    def add_pivoted_sheet(name, records, display_names=None):
+        sheet = workbook.create_sheet(title=name)
+        display_names = display_names or {}
+        rows = {}
+        for series_name, series_values in records.items():
+            if not isinstance(series_values, list):
+                continue
+            for point in series_values:
+                if isinstance(point, (list, tuple)) and len(point) >= 2:
+                    ts, value = point[0], point[1]
+                    rows.setdefault(ts, {})[series_name] = value
+
+        headers = ['timestamp_ms', 'timestamp'] + [display_names.get(series_name, series_name) for series_name in records.keys() if isinstance(records.get(series_name), list)]
+        sheet.append(headers)
+        for ts in sorted(rows):
+            row = [ts, datetime.datetime.fromtimestamp(ts / 1000).strftime('%Y-%m-%d %H:%M:%S')]
+            for series_name in records.keys():
+                if isinstance(records.get(series_name), list):
+                    row.append(rows[ts].get(series_name))
+            sheet.append(row)
+
+    def add_pivoted_kwh_sheet(records):
+        sheet = workbook.create_sheet(title='Raw KWH')
+        display_names = {
+            'Gc': 'Grid',
+            'Pc': 'Solar',
+            'Bc': 'Battery',
+            'Pb': 'Battery Flow',
+            'Gb': 'Grid Flow',
+            'kwh': 'kWh',
+        }
+        rows = {}
+        for series_name, series_values in records.items():
+            if not isinstance(series_values, list):
+                continue
+            for point in series_values:
+                if isinstance(point, (list, tuple)) and len(point) >= 2:
+                    ts, value = point[0], point[1]
+                    rows.setdefault(ts, {})[series_name] = value
+
+        headers = ['timestamp_ms', 'timestamp'] + [display_names.get(series_name, series_name) for series_name in records.keys() if isinstance(records.get(series_name), list)]
+        sheet.append(headers)
+        for ts in sorted(rows):
+            row = [ts, datetime.datetime.fromtimestamp(ts / 1000).strftime('%Y-%m-%d %H:%M:%S')]
+            for series_name in records.keys():
+                if isinstance(records.get(series_name), list):
+                    row.append(rows[ts].get(series_name))
+            sheet.append(row)
+
+    add_pivoted_kwh_sheet(payload['kwh_records'])
     add_series_sheet('Raw EVCS', payload['evcs_records'])
-    add_series_sheet('Raw Battery Stats', payload['battery_stats_records'])
+    add_pivoted_sheet('Raw Battery Stats', payload['battery_stats_records'], {'bs': 'Battery SOC'})
 
     output = BytesIO()
     workbook.save(output)
