@@ -6,11 +6,15 @@ import os
 import datetime
 
 class InstallDataType(Enum):
+    VENUS = "venus"
     LIVE_FEED = "live_feed"
     CONSUMPTION = "consumption"
     SOLAR_YIELD = "solar_yield"
-    LIVE_FEED_OTHER = "live_feed_other"
     KWH = "kwh"
+    GENERATOR = "generator"
+    GENERATORRUNTIME = "generator-runtime"
+    FORECAST = "forecast"
+    LIVE_FEED_OTHER = "live_feed_other"
     EVCS = "evcs"
 
 class Interval(Enum):

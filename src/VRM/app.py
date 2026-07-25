@@ -378,6 +378,50 @@ def build_dashboard_payload(startdate, enddate, interval, interval_raw, cost_per
     }
 
 
+def get_export_records(startdate, enddate, interval):
+    """Fetches the additional installation data types used for spreadsheet export."""
+    try:
+        loginobj = vrm_main.login()
+        installs = vrm_main.get_installs(loginobj)
+        if not installs or 'records' not in installs or not installs['records']:
+            raise RuntimeError('No installations found in VRM API response')
+        site_id = installs['records'][0]['idSite']
+    except Exception as exc:
+        print(f"[VRM DEBUG] Failed to prepare export records: {exc}")
+        return {}
+
+    export_records = {}
+    export_types = []
+    for data_type in vrm_main.InstallDataType:
+        if data_type.name in {'VENUS', 'LIVE_FEED', 'CONSUMPTION', 'SOLAR_YIELD', 'KWH', 'GENERATOR', 'GENERATORRUNTIME', 'FORECAST', 'LIVE_FEED_OTHER', 'EVCS'}:
+            export_types.append(data_type)
+
+    for data_type in export_types:
+        try:
+            response = vrm_main.get_install_data(loginobj, site_id, startdate, data_type, interval, enddate)
+            records = response.get('records', {}) if isinstance(response, dict) else {}
+        except Exception as exc:
+            print(f"[VRM DEBUG] Failed to load export data for {data_type.value}: {exc}")
+            records = {}
+        export_records[data_type] = records
+
+    return export_records
+
+
+def get_export_sheet_name(data_type):
+    """Maps an InstallDataType to the worksheet name used in the export workbook."""
+    mapping = {
+        'VENUS': 'Venus',
+        'LIVE_FEED': 'Live Feed',
+        'CONSUMPTION': 'Consumption',
+        'SOLAR_YIELD': 'Solar Yield',
+        'GENERATOR': 'Generator',
+        'GENERATORRUNTIME': 'Generator Runtime',
+        'FORECAST': 'Forecast',
+    }
+    return mapping.get(data_type.name)
+
+
 @app.route('/export')
 def export_data():
     """Exports the currently loaded VRM data into an Excel workbook with multiple worksheets."""
@@ -416,21 +460,43 @@ def export_data():
         sheet = workbook.create_sheet(title=name)
         display_names = display_names or {}
         rows = {}
+        column_headers = []
+
         for series_name, series_values in records.items():
             if not isinstance(series_values, list):
                 continue
-            for point in series_values:
-                if isinstance(point, (list, tuple)) and len(point) >= 2:
-                    ts, value = point[0], point[1]
-                    rows.setdefault(ts, {})[series_name] = value
 
-        headers = ['timestamp_ms', 'timestamp'] + [display_names.get(series_name, series_name) for series_name in records.keys() if isinstance(records.get(series_name), list)]
+            header_base = display_names.get(series_name, series_name)
+            for point in series_values:
+                if not isinstance(point, (list, tuple)) or len(point) < 2:
+                    continue
+
+                ts = point[0]
+                values = point[1:]
+                if len(values) == 1 and isinstance(values[0], list):
+                    values = values[0]
+
+                if not values:
+                    continue
+
+                if len(values) == 1:
+                    header_name = header_base
+                    if header_name not in column_headers:
+                        column_headers.append(header_name)
+                    rows.setdefault(ts, {})[header_name] = values[0]
+                else:
+                    for idx, item in enumerate(values):
+                        header_name = f"{header_base}_{idx}" if header_base else f"{series_name}_{idx}"
+                        if header_name not in column_headers:
+                            column_headers.append(header_name)
+                        rows.setdefault(ts, {})[header_name] = item
+
+        headers = ['timestamp_ms', 'timestamp'] + column_headers
         sheet.append(headers)
         for ts in sorted(rows):
             row = [ts, datetime.datetime.fromtimestamp(ts / 1000).strftime('%Y-%m-%d %H:%M:%S')]
-            for series_name in records.keys():
-                if isinstance(records.get(series_name), list):
-                    row.append(rows[ts].get(series_name))
+            for header in column_headers:
+                row.append(rows[ts].get(header))
             sheet.append(row)
 
     def add_pivoted_kwh_sheet(records):
@@ -461,9 +527,17 @@ def export_data():
                     row.append(rows[ts].get(series_name))
             sheet.append(row)
 
+    export_records = get_export_records(startdate, enddate, interval)
+
     add_pivoted_kwh_sheet(payload['kwh_records'])
     add_series_sheet('Raw EVCS', payload['evcs_records'])
     add_pivoted_sheet('Raw Battery Stats', payload['battery_stats_records'], {'bs': 'Battery SOC'})
+
+    for data_type in export_records:
+        sheet_name = get_export_sheet_name(data_type)
+        if not sheet_name:
+            continue
+        add_pivoted_sheet(f'Raw {sheet_name}', export_records[data_type])
 
     output = BytesIO()
     workbook.save(output)
